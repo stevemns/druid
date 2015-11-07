@@ -4,7 +4,7 @@ layout: doc_page
 Data Formats for Ingestion
 ==========================
 
-Druid can ingest denormalized data in JSON, CSV, or a custom delimited form such as TSV. While most examples in the documentation use data in JSON format, it is not difficult to configure Druid to ingest CSV or other delimited data.
+Druid can ingest denormalized data in JSON, CSV, or a delimited form such as TSV, or any custom format. While most examples in the documentation use data in JSON format, it is not difficult to configure Druid to ingest any other delimited data.
 We also welcome any contributions to new formats.
 
 ## Formatting the Data
@@ -41,6 +41,12 @@ _TSV (Delimited)_
 ```
 
 Note that the CSV and TSV data do not contain column heads. This becomes important when you specify the data for ingesting.
+
+_Custom_
+
+Druid supports custom data formats and can use the `Regex` parser or the `Javascript` parsers to parse these formats. 
+
+https://github.com/druid-io/druid-api/pull/66
 
 ## Configuration
 
@@ -91,6 +97,34 @@ Since the CSV data cannot contain the column names (no header is allowed), these
   }
 ```
 Be sure to change the `delimiter` to the appropriate delimiter for your data. Like CSV, you must specify the columns and which subset of the columns you want indexed.
+
+### Regex
+```json
+  "parseSpec":{
+    "format" : "regex",
+    "timestampSpec" : {
+      "column" : "timestamp"
+    },        
+    "dimensionsSpec" : {
+      "dimensions" : ["page","language","user","unpatrolled","newPage","robot","anonymous","namespace","continent","country","region","city"]
+    },
+    "pattern" : <regex pattern for partitioning data>
+  }
+```
+
+### Javascript
+```json
+  "parseSpec":{
+    "format" : "javascript",
+    "timestampSpec" : {
+      "column" : "timestamp"
+    },        
+    "dimensionsSpec" : {
+      "dimensions" : ["page","language","user","unpatrolled","newPage","robot","anonymous","namespace","continent","country","region","city"]
+    },
+    "function" : "function(str) { <do something>; }"
+  }
+```
 
 ### Multi-value dimensions
 Dimensions can have multiple values for TSV and CSV data. To specify the delimiter for a multi-value dimension, set the `listDelimiter` in the `parseSpec`.
