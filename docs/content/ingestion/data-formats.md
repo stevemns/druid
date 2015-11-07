@@ -46,8 +46,6 @@ _Custom_
 
 Druid supports custom data formats and can use the `Regex` parser or the `Javascript` parsers to parse these formats. 
 
-https://github.com/druid-io/druid-api/pull/66
-
 ## Configuration
 
 All forms of Druid ingestion require some form of schema object. The format of the data to be ingested is specified using the`parseSpec` entry in your `dataSchema`.
