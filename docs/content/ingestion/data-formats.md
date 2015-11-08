@@ -5,10 +5,11 @@ Data Formats for Ingestion
 ==========================
 
 Druid can ingest denormalized data in JSON, CSV, or a delimited form such as TSV, or any custom format. While most examples in the documentation use data in JSON format, it is not difficult to configure Druid to ingest any other delimited data.
-We also welcome any contributions to new formats.
+We welcome any contributions to new formats.
 
 ## Formatting the Data
-The following are three samples of the data used in the [Wikipedia example](../tutorials/tutorial-loading-streaming-data.html).
+
+The following are some samples of the data used in the [Wikipedia example](../tutorials/tutorial-loading-streaming-data.html).
 
 _JSON_
 
@@ -42,9 +43,10 @@ _TSV (Delimited)_
 
 Note that the CSV and TSV data do not contain column heads. This becomes important when you specify the data for ingesting.
 
-_Custom_
+## Custom Formats
 
-Druid supports custom data formats and can use the `Regex` parser or the `Javascript` parsers to parse these formats. 
+Druid supports custom data formats and can use the `Regex` parser or the `JavaScript` parsers to parse these formats. Please note that using any of these parsers for 
+parsing data will not be as efficient as writing a native Java parser or using an external stream processor. We welcome contributions of new Parsers.
 
 ## Configuration
 
@@ -65,6 +67,7 @@ All forms of Druid ingestion require some form of schema object. The format of t
 ```
 
 ### CSV
+
 Since the CSV data cannot contain the column names (no header is allowed), these must be added before that data can be processed:
 
 ```json
@@ -80,6 +83,8 @@ Since the CSV data cannot contain the column names (no header is allowed), these
   }
 ```
 
+The `columns` field must match the columns of your input data in the same order.
+
 ### TSV
 ```json
   "parseSpec":{
@@ -94,6 +99,9 @@ Since the CSV data cannot contain the column names (no header is allowed), these
     }
   }
 ```
+
+The `columns` field must match the columns of your input data in the same order. 
+
 Be sure to change the `delimiter` to the appropriate delimiter for your data. Like CSV, you must specify the columns and which subset of the columns you want indexed.
 
 ### Regex
@@ -110,7 +118,7 @@ Be sure to change the `delimiter` to the appropriate delimiter for your data. Li
   }
 ```
 
-### Javascript
+### JavaScript
 ```json
   "parseSpec":{
     "format" : "javascript",
@@ -120,9 +128,13 @@ Be sure to change the `delimiter` to the appropriate delimiter for your data. Li
     "dimensionsSpec" : {
       "dimensions" : ["page","language","user","unpatrolled","newPage","robot","anonymous","namespace","continent","country","region","city"]
     },
-    "function" : "function(str) { <do something>; }"
+    "function" : "function(str) { var parts = str.split(\"-\"); return { one: parts[0], two: parts[1] } }"
   }
 ```
 
+Please note with the JavaScript parser that data must be fully parsed and returned as a `{key:value}` format in the JS logic. 
+This means any flattening or parsing multi-dimensional values must be done here.
+
 ### Multi-value dimensions
-Dimensions can have multiple values for TSV and CSV data. To specify the delimiter for a multi-value dimension, set the `listDelimiter` in the `parseSpec`.
+Dimension values need not be single value and can have multiple values. For JSON and JavaScript parsing, a key may have an array of values.  
+For TSV, CSV, and Regex parsed data, a `listDelimiter` must be specified in the `parseSpec`.
