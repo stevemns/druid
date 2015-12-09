@@ -1,18 +1,20 @@
 /*
- * Druid - a distributed column store.
- * Copyright 2012 - 2015 Metamarkets Group Inc.
+ * Licensed to Metamarkets Group Inc. (Metamarkets) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. Metamarkets licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 
 package io.druid.server.initialization.jetty;
@@ -46,7 +48,6 @@ import io.druid.guice.annotations.Self;
 import io.druid.server.DruidNode;
 import io.druid.server.StatusResource;
 import io.druid.server.initialization.ServerConfig;
-
 import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
@@ -109,38 +110,8 @@ public class JettyServerModule extends JerseyServletModule
   @LazySingleton
   public Server getServer(Injector injector, Lifecycle lifecycle, @Self DruidNode node, ServerConfig config)
   {
-    JettyServerInitializer initializer = injector.getInstance(JettyServerInitializer.class);
-
     final Server server = makeJettyServer(node, config);
-    try {
-      initializer.initialize(server, injector);
-    }
-    catch (ConfigurationException e) {
-      throw new ProvisionException(Iterables.getFirst(e.getErrorMessages(), null).getMessage());
-    }
-
-
-    lifecycle.addHandler(
-        new Lifecycle.Handler()
-        {
-          @Override
-          public void start() throws Exception
-          {
-            server.start();
-          }
-
-          @Override
-          public void stop()
-          {
-            try {
-              server.stop();
-            }
-            catch (Exception e) {
-              log.warn(e, "Unable to stop Jetty server.");
-            }
-          }
-        }
-    );
+    initializeServer(injector, lifecycle, server);
     return server;
   }
 
@@ -153,7 +124,7 @@ public class JettyServerModule extends JerseyServletModule
     return provider;
   }
 
-  private static Server makeJettyServer(@Self DruidNode node, ServerConfig config)
+  static Server makeJettyServer(DruidNode node, ServerConfig config)
   {
     final QueuedThreadPool threadPool = new QueuedThreadPool();
     threadPool.setMinThreads(config.getNumThreads());
@@ -177,4 +148,38 @@ public class JettyServerModule extends JerseyServletModule
 
     return server;
   }
+
+  static void initializeServer(Injector injector, Lifecycle lifecycle, final Server server)
+  {
+    JettyServerInitializer initializer = injector.getInstance(JettyServerInitializer.class);
+    try {
+      initializer.initialize(server, injector);
+    }
+    catch (ConfigurationException e) {
+      throw new ProvisionException(Iterables.getFirst(e.getErrorMessages(), null).getMessage());
+    }
+
+    lifecycle.addHandler(
+        new Lifecycle.Handler()
+        {
+          @Override
+          public void start() throws Exception
+          {
+            server.start();
+          }
+
+          @Override
+          public void stop()
+          {
+            try {
+              server.stop();
+            }
+            catch (Exception e) {
+              log.warn(e, "Unable to stop Jetty server.");
+            }
+          }
+        }
+    );
+  }
+
 }

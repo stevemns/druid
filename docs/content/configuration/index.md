@@ -117,6 +117,7 @@ The following monitors are available:
 |`io.druid.server.metrics.HistoricalMetricsMonitor`|Reports statistics on Historical nodes.|
 |`com.metamx.metrics.JvmMonitor`|Reports JVM-related statistics.|
 |`io.druid.segment.realtime.RealtimeMetricsMonitor`|Reports statistics on Realtime nodes.|
+|`io.druid.server.metrics.EventReceiverFirehoseMonitor`|Reports how many events have been queued in the EventReceiverFirehose.|
 
 ### Emitting Metrics
 
@@ -221,14 +222,14 @@ This deep storage is used to interface with Cassandra.
 
 ### Caching
 
-You can enable caching of results at the broker/historical using following configurations.
+You can enable caching of results at the broker, historical, or realtime level using following configurations.
 
 |Property|Description|Default|
 |--------|-----------|-------|
 |`druid.cache.type`|`local`, `memcached`|The type of cache to use for queries.|`local`|
-|`druid.(broker/historical).cache.unCacheable`|All druid query types|All query types to not cache.|["groupBy", "select"]|
-|`druid.(broker/historical).cache.useCache`|Whether to use cache for getting query results.|false|
-|`druid.(broker/historical).cache.populateCache`|Whether to populate cache.|false|
+|`druid.(broker|historical|realtime).cache.unCacheable`|All druid query types|All query types to not cache.|["groupBy", "select"]|
+|`druid.(broker|historical|realtime).cache.useCache`|Whether to use cache for getting query results.|false|
+|`druid.(broker|historical|realtime).cache.populateCache`|Whether to populate cache.|false|
 
 #### Local Cache
 
@@ -255,6 +256,16 @@ This config is used to find the [Indexing Service](../design/indexing-service.ht
 |Property|Description|Default|
 |--------|-----------|-------|
 |`druid.selectors.indexing.serviceName`|The druid.service name of the indexing service Overlord node. To start the Overlord with a different name, set it with this property. |druid/overlord|
+
+
+### Coordinator Discovery
+
+This config is used to find the [Coordinator](../design/coordinator.html) using Curator service discovery. This config is used by the realtime indexing nodes to get information about the segments loaded in the cluster.
+
+|Property|Description|Default|
+|--------|-----------|-------|
+|`druid.selectors.coordinator.serviceName`|The druid.service name of the coordinator node. To start the Coordinator with a different name, set it with this property. |druid/coordinator|
+
 
 ### Announcing Segments
 

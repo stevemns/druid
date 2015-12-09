@@ -62,10 +62,12 @@ import io.druid.segment.incremental.OnheapIncrementalIndex;
 import io.druid.segment.loading.SegmentLoaderConfig;
 import io.druid.segment.loading.SegmentLoaderLocalCacheManager;
 import io.druid.segment.loading.StorageLocationConfig;
+import io.druid.segment.realtime.plumber.SegmentHandoffNotifierFactory;
 import io.druid.server.metrics.NoopServiceEmitter;
 import io.druid.timeline.DataSegment;
 import io.druid.timeline.partition.LinearShardSpec;
 import org.apache.commons.io.FileUtils;
+import org.easymock.EasyMock;
 import org.joda.time.DateTime;
 import org.joda.time.Interval;
 import org.junit.After;
@@ -283,7 +285,7 @@ public class IngestSegmentFirehoseFactoryTimelineTest
           if (taskAction instanceof SegmentListUsedAction) {
             // Expect the interval we asked for
             final SegmentListUsedAction action = (SegmentListUsedAction) taskAction;
-            if (action.getInterval().equals(testCase.interval)) {
+            if (action.getIntervals().equals(ImmutableList.of(testCase.interval))) {
               return (RetType) ImmutableList.copyOf(testCase.segments);
             } else {
               throw new IllegalArgumentException("WTF");
@@ -293,8 +295,10 @@ public class IngestSegmentFirehoseFactoryTimelineTest
           }
         }
       };
+      SegmentHandoffNotifierFactory notifierFactory = EasyMock.createNiceMock(SegmentHandoffNotifierFactory.class);
+      EasyMock.replay(notifierFactory);
       final TaskToolboxFactory taskToolboxFactory = new TaskToolboxFactory(
-          new TaskConfig(testCase.tmpDir.getAbsolutePath(), null, null, 50000, null),
+          new TaskConfig(testCase.tmpDir.getAbsolutePath(), null, null, 50000, null, null, null),
           new TaskActionClientFactory()
           {
             @Override
@@ -308,8 +312,8 @@ public class IngestSegmentFirehoseFactoryTimelineTest
           null, // segment killer
           null, // segment mover
           null, // segment archiver
-          null, // segment announcer
-          null, // new segment server view
+          null, // segment announcer,
+          notifierFactory,
           null, // query runner factory conglomerate corporation unionized collective
           null, // query executor service
           null, // monitor scheduler
@@ -328,7 +332,9 @@ public class IngestSegmentFirehoseFactoryTimelineTest
           ),
           MAPPER,
           INDEX_MERGER,
-          INDEX_IO
+          INDEX_IO,
+          null,
+          null
       );
       final Injector injector = Guice.createInjector(
           new Module()

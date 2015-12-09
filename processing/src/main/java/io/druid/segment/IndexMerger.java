@@ -1,21 +1,21 @@
 /*
-* Licensed to Metamarkets Group Inc. (Metamarkets) under one
-* or more contributor license agreements. See the NOTICE file
-* distributed with this work for additional information
-* regarding copyright ownership. Metamarkets licenses this file
-* to you under the Apache License, Version 2.0 (the
-* "License"); you may not use this file except in compliance
-* with the License. You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing,
-* software distributed under the License is distributed on an
-* "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-* KIND, either express or implied. See the License for the
-* specific language governing permissions and limitations
-* under the License.
-*/
+ * Licensed to Metamarkets Group Inc. (Metamarkets) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. Metamarkets licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 
 package io.druid.segment;
 
@@ -55,6 +55,7 @@ import io.druid.common.guava.GuavaUtils;
 import io.druid.common.utils.JodaUtils;
 import io.druid.common.utils.SerializerUtils;
 import io.druid.query.aggregation.AggregatorFactory;
+import io.druid.segment.column.BitmapIndexSeeker;
 import io.druid.segment.column.ColumnCapabilities;
 import io.druid.segment.column.ColumnCapabilitiesImpl;
 import io.druid.segment.column.ValueType;
@@ -216,8 +217,11 @@ public class IndexMerger
       ProgressIndicator progress
   ) throws IOException
   {
-    return merge(
-        Lists.transform(
+    // We are materializing the list for performance reasons. Lists.transform
+    // only creates a "view" of the original list, meaning the function gets
+    // applied every time you access an element.
+    List<IndexableAdapter> indexAdapteres = Lists.newArrayList(
+        Iterables.transform(
             indexes,
             new Function<QueryableIndex, IndexableAdapter>()
             {
@@ -227,7 +231,10 @@ public class IndexMerger
                 return new QueryableIndexIndexableAdapter(input);
               }
             }
-        ),
+        )
+    );
+    return merge(
+        indexAdapteres,
         metricAggs,
         outDir,
         null,
@@ -247,6 +254,38 @@ public class IndexMerger
     return merge(indexes, metricAggs, outDir, segmentMetadata, indexSpec, new BaseProgressIndicator());
   }
 
+  private List<String> getLexicographicMergedDimensions(List<IndexableAdapter> indexes)
+  {
+    return mergeIndexed(
+        Lists.transform(
+            indexes,
+            new Function<IndexableAdapter, Iterable<String>>()
+            {
+              @Override
+              public Iterable<String> apply(@Nullable IndexableAdapter input)
+              {
+                return input.getDimensionNames();
+              }
+            }
+        )
+    );
+  }
+
+  private List<String> getMergedDimensions(List<IndexableAdapter> indexes)
+  {
+    if (indexes.size() == 0) {
+      return ImmutableList.of();
+    }
+    Indexed<String> dimOrder = indexes.get(0).getDimensionNames();
+    for (IndexableAdapter index : indexes) {
+      Indexed<String> dimOrder2 = index.getDimensionNames();
+      if(!Iterators.elementsEqual(dimOrder.iterator(), dimOrder2.iterator())) {
+        return getLexicographicMergedDimensions(indexes);
+      }
+    }
+    return ImmutableList.copyOf(dimOrder);
+  }
+
   public File merge(
       List<IndexableAdapter> indexes,
       final AggregatorFactory[] metricAggs,
@@ -261,19 +300,8 @@ public class IndexMerger
       throw new ISE("Couldn't make outdir[%s].", outDir);
     }
 
-    final List<String> mergedDimensions = mergeIndexed(
-        Lists.transform(
-            indexes,
-            new Function<IndexableAdapter, Iterable<String>>()
-            {
-              @Override
-              public Iterable<String> apply(@Nullable IndexableAdapter input)
-              {
-                return input.getDimensionNames();
-              }
-            }
-        )
-    );
+    final List<String> mergedDimensions = getMergedDimensions(indexes);
+
     final List<String> mergedMetrics = Lists.transform(
         mergeIndexed(
             Lists.newArrayList(
@@ -401,29 +429,8 @@ public class IndexMerger
       throw new ISE("Couldn't make outdir[%s].", outDir);
     }
 
-    final List<String> mergedDimensions = mergeIndexed(
-        Lists.transform(
-            indexes,
-            new Function<IndexableAdapter, Iterable<String>>()
-            {
-              @Override
-              public Iterable<String> apply(@Nullable IndexableAdapter input)
-              {
-                return Iterables.transform(
-                    input.getDimensionNames(),
-                    new Function<String, String>()
-                    {
-                      @Override
-                      public String apply(@Nullable String input)
-                      {
-                        return input;
-                      }
-                    }
-                );
-              }
-            }
-        )
-    );
+    final List<String> mergedDimensions = getMergedDimensions(indexes);
+
     final List<String> mergedMetrics = mergeIndexed(
         Lists.transform(
             indexes,
@@ -842,13 +849,17 @@ public class IndexMerger
         tree = new RTree(2, new LinearGutmanSplitStrategy(0, 50, bitmapFactory), bitmapFactory);
       }
 
+      BitmapIndexSeeker[] bitmapIndexSeeker = new BitmapIndexSeeker[indexes.size()];
+      for (int j = 0; j < indexes.size(); j++) {
+        bitmapIndexSeeker[j] = indexes.get(j).getBitmapIndexSeeker(dimension);
+      }
       for (String dimVal : IndexedIterable.create(dimVals)) {
         progress.progress();
         List<Iterable<Integer>> convertedInverteds = Lists.newArrayListWithCapacity(indexes.size());
         for (int j = 0; j < indexes.size(); ++j) {
           convertedInverteds.add(
               new ConvertingIndexedInts(
-                  indexes.get(j).getBitmapIndex(dimension, dimVal), rowNumConversions.get(j)
+                  bitmapIndexSeeker[j].seek(dimVal), rowNumConversions.get(j)
               )
           );
         }
@@ -998,6 +1009,7 @@ public class IndexMerger
 
     private int currIndex;
     private String lastVal = null;
+    private String currValue;
 
     DimValueConverter(
         Indexed<String> dimSet
@@ -1007,6 +1019,7 @@ public class IndexMerger
       conversionBuf = ByteBuffer.allocateDirect(dimSet.size() * Ints.BYTES).asIntBuffer();
 
       currIndex = 0;
+      currValue = null;
     }
 
     public void convert(String value, int index)
@@ -1020,7 +1033,9 @@ public class IndexMerger
         }
         return;
       }
-      String currValue = dimSet.get(currIndex);
+      if (currValue == null) {
+        currValue = dimSet.get(currIndex);
+      }
 
       while (currValue == null) {
         conversionBuf.position(conversionBuf.position() + 1);
@@ -1037,6 +1052,8 @@ public class IndexMerger
         ++currIndex;
         if (currIndex == dimSet.size()) {
           lastVal = value;
+        } else {
+          currValue = dimSet.get(currIndex);
         }
       } else if (currValue.compareTo(value) < 0) {
         throw new ISE(

@@ -1,18 +1,20 @@
 /*
- * Druid - a distributed column store.
- * Copyright 2012 - 2015 Metamarkets Group Inc.
+ * Licensed to Metamarkets Group Inc. (Metamarkets) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. Metamarkets licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 
 package io.druid.client;
@@ -162,9 +164,33 @@ public class CachingClusteredClient<T> implements QueryRunner<T>
     Set<Pair<ServerSelector, SegmentDescriptor>> segments = Sets.newLinkedHashSet();
 
     List<TimelineObjectHolder<String, ServerSelector>> serversLookup = Lists.newLinkedList();
+    List<Interval> uncoveredIntervals = Lists.newLinkedList();
 
     for (Interval interval : query.getIntervals()) {
-      Iterables.addAll(serversLookup, timeline.lookup(interval));
+      Iterable<TimelineObjectHolder<String, ServerSelector>> lookup = timeline.lookup(interval);
+      long startMillis = interval.getStartMillis();
+      long endMillis = interval.getEndMillis();
+      for (TimelineObjectHolder<String, ServerSelector> holder : lookup) {
+        Interval holderInterval = holder.getInterval();
+        long intervalStart = holderInterval.getStartMillis();
+        if (startMillis != intervalStart) {
+          uncoveredIntervals.add(new Interval(startMillis, intervalStart));
+        }
+        startMillis = holderInterval.getEndMillis();
+        serversLookup.add(holder);
+      }
+
+      if (startMillis < endMillis) {
+        uncoveredIntervals.add(new Interval(startMillis, endMillis));
+      }
+    }
+
+    if (!uncoveredIntervals.isEmpty()) {
+      // This returns intervals for which NO segment is present.
+      // Which is not necessarily an indication that the data doesn't exist or is
+      // incomplete. The data could exist and just not be loaded yet.  In either
+      // case, though, this query will not include any data from the identified intervals.
+      responseContext.put("uncoveredIntervals", uncoveredIntervals);
     }
 
     // Let tool chest filter out unneeded segments

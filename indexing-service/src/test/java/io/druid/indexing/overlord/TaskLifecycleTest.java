@@ -1,18 +1,20 @@
 /*
- * Druid - a distributed column store.
- * Copyright 2012 - 2015 Metamarkets Group Inc.
+ * Licensed to Metamarkets Group Inc. (Metamarkets) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. Metamarkets licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 
 package io.druid.indexing.overlord;
@@ -24,17 +26,17 @@ import com.fasterxml.jackson.databind.jsontype.NamedType;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
-import com.google.common.collect.Sets;
 import com.metamx.common.Granularity;
 import com.metamx.common.ISE;
+import com.metamx.common.Pair;
 import com.metamx.common.guava.Comparators;
 import com.metamx.emitter.EmittingLogger;
 import com.metamx.emitter.core.Event;
@@ -42,8 +44,7 @@ import com.metamx.emitter.service.ServiceEmitter;
 import com.metamx.emitter.service.ServiceEventBuilder;
 import com.metamx.metrics.Monitor;
 import com.metamx.metrics.MonitorScheduler;
-import io.druid.client.FilteredServerView;
-import io.druid.client.ServerView;
+import io.druid.client.cache.MapCache;
 import io.druid.data.input.Firehose;
 import io.druid.data.input.FirehoseFactory;
 import io.druid.data.input.InputRow;
@@ -59,6 +60,7 @@ import io.druid.indexing.common.TestUtils;
 import io.druid.indexing.common.actions.LocalTaskActionClientFactory;
 import io.druid.indexing.common.actions.LockListAction;
 import io.druid.indexing.common.actions.SegmentInsertAction;
+import io.druid.indexing.common.actions.TaskActionClient;
 import io.druid.indexing.common.actions.TaskActionClientFactory;
 import io.druid.indexing.common.actions.TaskActionToolbox;
 import io.druid.indexing.common.config.TaskConfig;
@@ -70,11 +72,12 @@ import io.druid.indexing.common.task.RealtimeIndexTask;
 import io.druid.indexing.common.task.Task;
 import io.druid.indexing.common.task.TaskResource;
 import io.druid.indexing.overlord.config.TaskQueueConfig;
+import io.druid.indexing.test.TestIndexerMetadataStorageCoordinator;
 import io.druid.jackson.DefaultObjectMapper;
-import io.druid.metadata.IndexerSQLMetadataStorageCoordinator;
 import io.druid.metadata.SQLMetadataStorageActionHandlerFactory;
 import io.druid.metadata.TestDerbyConnector;
 import io.druid.query.QueryRunnerFactoryConglomerate;
+import io.druid.query.SegmentDescriptor;
 import io.druid.query.aggregation.AggregatorFactory;
 import io.druid.query.aggregation.DoubleSumAggregatorFactory;
 import io.druid.query.aggregation.LongSumAggregatorFactory;
@@ -94,8 +97,10 @@ import io.druid.segment.loading.SegmentLoaderLocalCacheManager;
 import io.druid.segment.loading.SegmentLoadingException;
 import io.druid.segment.loading.StorageLocationConfig;
 import io.druid.segment.realtime.FireDepartment;
+import io.druid.segment.realtime.FireDepartmentTest;
+import io.druid.segment.realtime.plumber.SegmentHandoffNotifier;
+import io.druid.segment.realtime.plumber.SegmentHandoffNotifierFactory;
 import io.druid.server.coordination.DataSegmentAnnouncer;
-import io.druid.server.coordination.DruidServerMetadata;
 import io.druid.timeline.DataSegment;
 import io.druid.timeline.partition.NoneShardSpec;
 import org.easymock.EasyMock;
@@ -114,7 +119,6 @@ import org.junit.runners.Parameterized;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
@@ -180,6 +184,7 @@ public class TaskLifecycleTest
 
   private final String taskStorageType;
 
+
   private ObjectMapper mapper;
   private TaskStorageQueryAdapter tsqa = null;
   private File tmpDir = null;
@@ -187,12 +192,11 @@ public class TaskLifecycleTest
   private TaskLockbox tl = null;
   private TaskQueue tq = null;
   private TaskRunner tr = null;
-  private MockIndexerMetadataStorageCoordinator mdc = null;
+  private TestIndexerMetadataStorageCoordinator mdc = null;
   private TaskActionClientFactory tac = null;
   private TaskToolboxFactory tb = null;
   private IndexSpec indexSpec;
   private QueryRunnerFactoryConglomerate queryRunnerFactoryConglomerate;
-  private FilteredServerView serverView;
   private MonitorScheduler monitorScheduler;
   private ServiceEmitter emitter;
   private TaskQueueConfig tqc;
@@ -200,11 +204,22 @@ public class TaskLifecycleTest
   private int announcedSinks;
   private static CountDownLatch publishCountDown;
   private TestDerbyConnector testDerbyConnector;
-  private List<ServerView.SegmentCallback> segmentCallbacks = new ArrayList<>();
+  private SegmentHandoffNotifierFactory handoffNotifierFactory;
+  private Map<SegmentDescriptor, Pair<Executor, Runnable>> handOffCallbacks;
 
-  private static MockIndexerMetadataStorageCoordinator newMockMDC()
+
+  private static TestIndexerMetadataStorageCoordinator newMockMDC()
   {
-    return new MockIndexerMetadataStorageCoordinator();
+    return new TestIndexerMetadataStorageCoordinator()
+    {
+      @Override
+      public Set<DataSegment> announceHistoricalSegments(Set<DataSegment> segments)
+      {
+        Set<DataSegment> retVal = super.announceHistoricalSegments(segments);
+        publishCountDown.countDown();
+        return retVal;
+      }
+    };
   }
 
   private static ServiceEmitter newMockEmitter()
@@ -370,20 +385,51 @@ public class TaskLifecycleTest
       ts = new MetadataTaskStorage(
           testDerbyConnector,
           new TaskStorageConfig(null),
-          new SQLMetadataStorageActionHandlerFactory(testDerbyConnector, derbyConnectorRule.metadataTablesConfigSupplier().get(), mapper)
+          new SQLMetadataStorageActionHandlerFactory(
+              testDerbyConnector,
+              derbyConnectorRule.metadataTablesConfigSupplier().get(),
+              mapper
+          )
       );
     } else {
       throw new RuntimeException(String.format("Unknown task storage type [%s]", taskStorageType));
     }
-
-    serverView = new FilteredServerView()
+    handOffCallbacks = Maps.newConcurrentMap();
+    handoffNotifierFactory = new SegmentHandoffNotifierFactory()
     {
       @Override
-      public void registerSegmentCallback(
-          Executor exec, ServerView.SegmentCallback callback, Predicate<DataSegment> filter
-      )
+      public SegmentHandoffNotifier createSegmentHandoffNotifier(String dataSource)
       {
-        segmentCallbacks.add(callback);
+        return new SegmentHandoffNotifier()
+        {
+
+
+          @Override
+          public boolean registerSegmentHandoffCallback(
+              SegmentDescriptor descriptor, Executor exec, Runnable handOffRunnable
+          )
+          {
+            handOffCallbacks.put(descriptor, new Pair<>(exec, handOffRunnable));
+            return true;
+          }
+
+          @Override
+          public void start()
+          {
+            //Noop
+          }
+
+          @Override
+          public void stop()
+          {
+            //Noop
+          }
+
+          Map<SegmentDescriptor, Pair<Executor, Runnable>> getHandOffCallbacks()
+          {
+            return handOffCallbacks;
+          }
+        };
       }
     };
     setUpAndStartTaskQueue(
@@ -405,13 +451,15 @@ public class TaskLifecycleTest
     );
   }
 
-  private void setUpAndStartTaskQueue(DataSegmentPusher dataSegmentPusher) {
+  private void setUpAndStartTaskQueue(DataSegmentPusher dataSegmentPusher)
+  {
+    final TaskConfig taskConfig = new TaskConfig(tmpDir.toString(), null, null, 50000, null, null, null);
     tsqa = new TaskStorageQueryAdapter(ts);
     tl = new TaskLockbox(ts);
     mdc = newMockMDC();
     tac = new LocalTaskActionClientFactory(ts, new TaskActionToolbox(tl, mdc, newMockEmitter()));
     tb = new TaskToolboxFactory(
-        new TaskConfig(tmpDir.toString(), null, null, 50000, null),
+        taskConfig,
         tac,
         newMockEmitter(),
         dataSegmentPusher,
@@ -465,7 +513,7 @@ public class TaskLifecycleTest
 
           }
         }, // segment announcer
-        serverView, // new segment server view
+        handoffNotifierFactory,
         queryRunnerFactoryConglomerate, // query runner factory conglomerate corporation unionized collective
         null, // query executor service
         monitorScheduler, // monitor scheduler
@@ -484,9 +532,11 @@ public class TaskLifecycleTest
         ),
         MAPPER,
         INDEX_MERGER,
-        INDEX_IO
+        INDEX_IO,
+        MapCache.create(0),
+        FireDepartmentTest.NO_CACHE_CONFIG
     );
-    tr = new ThreadPoolTaskRunner(tb, null);
+    tr = new ThreadPoolTaskRunner(tb, taskConfig, emitter);
     tq = new TaskQueue(tqc, ts, tr, tac, tl, emitter);
     tq.start();
   }
@@ -816,7 +866,7 @@ public class TaskLifecycleTest
     Assert.assertEquals("segments nuked", 0, mdc.getNuked().size());
   }
 
-  @Test (timeout = 4000L)
+  @Test(timeout = 4000L)
   public void testRealtimeIndexTask() throws Exception
   {
     monitorScheduler.addMonitor(EasyMock.anyObject(Monitor.class));
@@ -833,16 +883,10 @@ public class TaskLifecycleTest
     Assert.assertTrue(publishCountDown.await(1000, TimeUnit.MILLISECONDS));
 
     // Realtime Task has published the segment, simulate loading of segment to a historical node so that task finishes with SUCCESS status
-    segmentCallbacks.get(0).segmentAdded(
-        new DruidServerMetadata(
-            "dummy",
-            "dummy_host",
-            0,
-            "historical",
-            "dummy_tier",
-            0
-        ), mdc.getPublished().iterator().next()
-    );
+    Assert.assertEquals(1, handOffCallbacks.size());
+    Pair<Executor, Runnable> executorRunnablePair = Iterables.getOnlyElement(handOffCallbacks.values());
+    executorRunnablePair.lhs.execute(executorRunnablePair.rhs);
+    handOffCallbacks.clear();
 
     // Wait for realtime index task to handle callback in plumber and succeed
     while (tsqa.getStatus(taskId).get().isRunnable()) {
@@ -865,7 +909,7 @@ public class TaskLifecycleTest
     EasyMock.verify(monitorScheduler, queryRunnerFactoryConglomerate);
   }
 
-  @Test (timeout = 4000L)
+  @Test(timeout = 4000L)
   public void testRealtimeIndexTaskFailure() throws Exception
   {
     setUpAndStartTaskQueue(
@@ -1007,7 +1051,8 @@ public class TaskLifecycleTest
     return retVal;
   }
 
-  private RealtimeIndexTask giveMeARealtimeIndexTask() {
+  private RealtimeIndexTask giveMeARealtimeIndexTask()
+  {
     String taskId = String.format("rt_task_%s", System.currentTimeMillis());
     DataSchema dataSchema = new DataSchema(
         "test_ds",
@@ -1018,7 +1063,8 @@ public class TaskLifecycleTest
     );
     RealtimeIOConfig realtimeIOConfig = new RealtimeIOConfig(
         new MockFirehoseFactory(true),
-        null, // PlumberSchool - Realtime Index Task always uses RealtimePlumber which is hardcoded in RealtimeIndexTask class
+        null,
+        // PlumberSchool - Realtime Index Task always uses RealtimePlumber which is hardcoded in RealtimeIndexTask class
         null
     );
     RealtimeTuningConfig realtimeTuningConfig = new RealtimeTuningConfig(
@@ -1039,65 +1085,5 @@ public class TaskLifecycleTest
         fireDepartment,
         null
     );
-  }
-
-  private static class MockIndexerMetadataStorageCoordinator extends IndexerSQLMetadataStorageCoordinator
-  {
-    final private Set<DataSegment> published = Sets.newHashSet();
-    final private Set<DataSegment> nuked = Sets.newHashSet();
-
-    private List<DataSegment> unusedSegments;
-
-    private MockIndexerMetadataStorageCoordinator()
-    {
-      super(null, null, null);
-      unusedSegments = Lists.newArrayList();
-    }
-
-    @Override
-    public List<DataSegment> getUsedSegmentsForInterval(String dataSource, Interval interval) throws IOException
-    {
-      return ImmutableList.of();
-    }
-
-    @Override
-    public List<DataSegment> getUnusedSegmentsForInterval(String dataSource, Interval interval)
-    {
-      return unusedSegments;
-    }
-
-    @Override
-    public Set<DataSegment> announceHistoricalSegments(Set<DataSegment> segments)
-    {
-      Set<DataSegment> added = Sets.newHashSet();
-      for (final DataSegment segment : segments) {
-        if (published.add(segment)) {
-          added.add(segment);
-        }
-      }
-      TaskLifecycleTest.publishCountDown.countDown();
-      return ImmutableSet.copyOf(added);
-    }
-
-    @Override
-    public void deleteSegments(Set<DataSegment> segments)
-    {
-      nuked.addAll(segments);
-    }
-
-    public Set<DataSegment> getPublished()
-    {
-      return ImmutableSet.copyOf(published);
-    }
-
-    public Set<DataSegment> getNuked()
-    {
-      return ImmutableSet.copyOf(nuked);
-    }
-
-    public void setUnusedSegments(List<DataSegment> unusedSegments)
-    {
-      this.unusedSegments = unusedSegments;
-    }
   }
 }

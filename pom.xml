@@ -72,7 +72,7 @@
         <druid.api.version>0.3.14</druid.api.version>
         <!-- Watch out for Hadoop compatibility when updating to >= 2.5; see https://github.com/druid-io/druid/pull/1669 -->
         <jackson.version>2.4.6</jackson.version>
-        <log4j.version>2.3</log4j.version>
+        <log4j.version>2.4.1</log4j.version>
         <slf4j.version>1.7.12</slf4j.version>
         <hadoop.compile.version>2.3.0</hadoop.compile.version>
     </properties>
@@ -105,6 +105,8 @@
         <module>extensions/namespace-lookup</module>
         <module>extensions/kafka-extraction-namespace</module>
         <module>extensions/cloudfiles-extensions</module>
+        <module>extensions/datasketches</module>
+
         <!-- distribution packaging -->
         <module>distribution</module>
 
@@ -122,7 +124,7 @@
             <dependency>
                 <groupId>com.metamx</groupId>
                 <artifactId>emitter</artifactId>
-                <version>0.3.4</version>
+                <version>0.3.6</version>
             </dependency>
             <dependency>
                 <groupId>com.metamx</groupId>
@@ -689,6 +691,14 @@
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>exec-maven-plugin</artifactId>
                     <version>1.2.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <configuration>
+                        <!-- jdk8 started linting javadocs by default; ours are not fully compliant -->
+                        <additionalparam>-Xdoclint:none</additionalparam>
+                    </configuration>
                 </plugin>
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>

@@ -1,18 +1,20 @@
 /*
- * Druid - a distributed column store.
- * Copyright 2012 - 2015 Metamarkets Group Inc.
+ * Licensed to Metamarkets Group Inc. (Metamarkets) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. Metamarkets licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 
 package io.druid.segment;
@@ -36,11 +38,11 @@ public class TestHelper
   private static final IndexMerger INDEX_MERGER;
   private static final IndexMaker INDEX_MAKER;
   private static final IndexIO INDEX_IO;
+  public static final ObjectMapper JSON_MAPPER = new DefaultObjectMapper();
 
   static {
-    ObjectMapper jsonMapper = new DefaultObjectMapper();
     INDEX_IO = new IndexIO(
-        jsonMapper,
+        JSON_MAPPER,
         new ColumnConfig()
         {
           @Override
@@ -50,9 +52,10 @@ public class TestHelper
           }
         }
     );
-    INDEX_MERGER = new IndexMerger(jsonMapper, INDEX_IO);
-    INDEX_MAKER = new IndexMaker(jsonMapper, INDEX_IO);
+    INDEX_MERGER = new IndexMerger(JSON_MAPPER, INDEX_IO);
+    INDEX_MAKER = new IndexMaker(JSON_MAPPER, INDEX_IO);
   }
+
 
   public static IndexMerger getTestIndexMerger()
   {
@@ -67,6 +70,10 @@ public class TestHelper
   public static IndexIO getTestIndexIO()
   {
     return INDEX_IO;
+  }
+
+  public static ObjectMapper getObjectMapper() {
+    return JSON_MAPPER;
   }
 
   public static <T> void assertExpectedResults(Iterable<Result<T>> expectedResults, Sequence<Result<T>> results)

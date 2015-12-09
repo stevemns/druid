@@ -1,26 +1,26 @@
 /*
- * Druid - a distributed column store.
- * Copyright 2012 - 2015 Metamarkets Group Inc.
+ * Licensed to Metamarkets Group Inc. (Metamarkets) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. Metamarkets licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 
 package io.druid.indexing.firehose;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.introspect.AnnotationIntrospectorPair;
-import com.fasterxml.jackson.databind.introspect.GuiceAnnotationIntrospector;
-import com.fasterxml.jackson.databind.introspect.GuiceInjectableValues;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -45,6 +45,8 @@ import io.druid.data.input.impl.MapInputRowParser;
 import io.druid.data.input.impl.SpatialDimensionSchema;
 import io.druid.data.input.impl.TimestampSpec;
 import io.druid.granularity.QueryGranularity;
+import io.druid.guice.GuiceAnnotationIntrospector;
+import io.druid.guice.GuiceInjectableValues;
 import io.druid.guice.GuiceInjectors;
 import io.druid.indexing.common.SegmentLoaderFactory;
 import io.druid.indexing.common.TaskToolboxFactory;
@@ -76,8 +78,10 @@ import io.druid.segment.loading.SegmentLoaderLocalCacheManager;
 import io.druid.segment.loading.SegmentLoadingException;
 import io.druid.segment.loading.StorageLocationConfig;
 import io.druid.segment.realtime.firehose.IngestSegmentFirehose;
+import io.druid.segment.realtime.plumber.SegmentHandoffNotifierFactory;
 import io.druid.timeline.DataSegment;
 import io.druid.timeline.partition.NumberedShardSpec;
+import org.easymock.EasyMock;
 import org.joda.time.Interval;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -162,6 +166,12 @@ public class IngestSegmentFirehoseFactoryTest
       }
 
       @Override
+      public List<DataSegment> getUsedSegmentsForIntervals(String dataSource, List<Interval> interval) throws IOException
+      {
+        return ImmutableList.copyOf(segmentSet);
+      }
+
+      @Override
       public List<DataSegment> getUnusedSegmentsForInterval(String dataSource, Interval interval)
       {
         return ImmutableList.of();
@@ -190,9 +200,11 @@ public class IngestSegmentFirehoseFactoryTest
         ts,
         new TaskActionToolbox(tl, mdc, newMockEmitter())
     );
+    SegmentHandoffNotifierFactory notifierFactory = EasyMock.createNiceMock(SegmentHandoffNotifierFactory.class);
+    EasyMock.replay(notifierFactory);
 
     final TaskToolboxFactory taskToolboxFactory = new TaskToolboxFactory(
-        new TaskConfig(tmpDir.getAbsolutePath(), null, null, 50000, null),
+        new TaskConfig(tmpDir.getAbsolutePath(), null, null, 50000, null, null, null),
         tac,
         newMockEmitter(),
         new DataSegmentPusher()
@@ -241,7 +253,7 @@ public class IngestSegmentFirehoseFactoryTest
           }
         },
         null, // segment announcer
-        null, // new segment server view
+        notifierFactory,
         null, // query runner factory conglomerate corporation unionized collective
         null, // query executor service
         null, // monitor scheduler
@@ -260,7 +272,9 @@ public class IngestSegmentFirehoseFactoryTest
         ),
         MAPPER,
         INDEX_MERGER,
-        INDEX_IO
+        INDEX_IO,
+        null,
+        null
     );
     Collection<Object[]> values = new LinkedList<>();
     for (InputRowParser parser : Arrays.<InputRowParser>asList(
@@ -511,5 +525,7 @@ public class IngestSegmentFirehoseFactoryTest
 
       }
     };
+
+
   }
 }

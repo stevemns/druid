@@ -138,3 +138,5 @@ This means any flattening or parsing multi-dimensional values must be done here.
 ### Multi-value dimensions
 Dimension values need not be single value and can have multiple values. For JSON and JavaScript parsing, a key may have an array of values.  
 For TSV, CSV, and Regex parsed data, a `listDelimiter` must be specified in the `parseSpec`.
+
+JSON data can contain multi-value dimensions as well. The multiple values for a dimension must be formatted as a JSON array in the ingested data. No additional `parseSpec` configuration is needed.

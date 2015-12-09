@@ -73,7 +73,9 @@ Available Metrics
 |`*/errors`|Number of cache errors.||0|
 
 #### Memcached only metrics
+
 Memcached client metrics are reported as per the following. These metrics come directly from the client as opposed to from the cache retrieval layer.
+
 |Metric|Description|Dimensions|Normal Value|
 |------|-----------|----------|------------|
 |`query/cache/memcached/total`|Cache metrics unique to memcached (only if `druid.cache.type=memcached`) as their actual values|Variable|N/A|
@@ -160,6 +162,14 @@ These metrics are only available if the JVMMonitor module is included.
 |`jvm/mem/committed`|Committed memory.|memKind.|close to max memory|
 |`jvm/gc/count`|Garbage collection count.|gcName.|< 100|
 |`jvm/gc/time`|Garbage collection time.|gcName.|< 1s|	
+
+### EventReceiverFirehose
+
+The following metric is only available if the EventReceiverFirehoseMonitor module is included.
+
+|Metric|Description|Dimensions|Normal Value|
+|------|-----------|----------|------------|
+|`ingest/events/buffered`|Number of events queued in the EventReceiverFirehose's buffer|serviceName, bufferCapacity.|Equal to current # of events in the buffer queue.|
 
 ## Sys
 

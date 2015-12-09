@@ -1,26 +1,27 @@
 /*
-* Licensed to Metamarkets Group Inc. (Metamarkets) under one
-* or more contributor license agreements. See the NOTICE file
-* distributed with this work for additional information
-* regarding copyright ownership. Metamarkets licenses this file
-* to you under the Apache License, Version 2.0 (the
-* "License"); you may not use this file except in compliance
-* with the License. You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing,
-* software distributed under the License is distributed on an
-* "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-* KIND, either express or implied. See the License for the
-* specific language governing permissions and limitations
-* under the License.
-*/
+ * Licensed to Metamarkets Group Inc. (Metamarkets) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. Metamarkets licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 
 package io.druid.server.http;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import io.druid.client.CoordinatorServerView;
 import io.druid.client.DruidDataSource;
 import io.druid.client.DruidServer;
 import io.druid.client.InventoryView;
@@ -42,7 +43,7 @@ import java.util.TreeSet;
 
 public class DatasourcesResourceTest
 {
-  private InventoryView inventoryView;
+  private CoordinatorServerView inventoryView;
   private DruidServer server;
   private List<DruidDataSource> listDataSources;
   private List<DataSegment> dataSegmentList;
@@ -50,7 +51,7 @@ public class DatasourcesResourceTest
   @Before
   public void setUp()
   {
-    inventoryView = EasyMock.createStrictMock(InventoryView.class);
+    inventoryView = EasyMock.createStrictMock(CoordinatorServerView.class);
     server = EasyMock.createStrictMock(DruidServer.class);
     dataSegmentList = new ArrayList<>();
     dataSegmentList.add(
@@ -63,7 +64,7 @@ public class DatasourcesResourceTest
             null,
             null,
             0x9,
-            0
+            10
         )
     );
     dataSegmentList.add(
@@ -76,7 +77,7 @@ public class DatasourcesResourceTest
             null,
             null,
             0x9,
-            0
+            20
         )
     );
     dataSegmentList.add(
@@ -89,7 +90,7 @@ public class DatasourcesResourceTest
             null,
             null,
             0x9,
-            0
+            30
         )
     );
     listDataSources = new ArrayList<>();
@@ -199,7 +200,7 @@ public class DatasourcesResourceTest
     DruidDataSource dataSource1 = new DruidDataSource("datasource1", new HashMap());
     dataSource1.addSegment(
         "partition",
-        new DataSegment("datasegment1", new Interval("2010-01-01/P1D"), null, null, null, null, null, 0x9, 0)
+        new DataSegment("datasegment1", new Interval("2010-01-01/P1D"), null, null, null, null, null, 0x9, 10)
     );
     EasyMock.expect(server.getDataSource("datasource1")).andReturn(
         dataSource1
@@ -215,10 +216,54 @@ public class DatasourcesResourceTest
     Assert.assertEquals(200, response.getStatus());
     Map<String, Map<String, Object>> result = (Map<String, Map<String, Object>>) response.getEntity();
     Assert.assertEquals(1, ((Map) (result.get("tiers").get(null))).get("segmentCount"));
+    Assert.assertEquals(10L, ((Map) (result.get("tiers").get(null))).get("size"));
     Assert.assertNotNull(result.get("segments"));
-    Assert.assertNotNull(result.get("segments").get("minTime").toString(), "2010-01-01T00:00:00.000Z");
-    Assert.assertNotNull(result.get("segments").get("maxTime").toString(), "2010-01-02T00:00:00.000Z");
+    Assert.assertEquals("2010-01-01T00:00:00.000Z", result.get("segments").get("minTime").toString());
+    Assert.assertEquals("2010-01-02T00:00:00.000Z", result.get("segments").get("maxTime").toString());
+    Assert.assertEquals(1, result.get("segments").get("count"));
+    Assert.assertEquals(10L, result.get("segments").get("size"));
     EasyMock.verify(inventoryView, server);
+  }
+
+  @Test
+  public void testSimpleGetTheDataSourceManyTiers() throws Exception
+  {
+    EasyMock.expect(server.getDataSource("datasource1")).andReturn(
+        listDataSources.get(0)
+    ).atLeastOnce();
+    EasyMock.expect(server.getTier()).andReturn("cold").atLeastOnce();
+
+    DruidServer server2 = EasyMock.createStrictMock(DruidServer.class);
+    EasyMock.expect(server2.getDataSource("datasource1")).andReturn(
+        listDataSources.get(1)
+    ).atLeastOnce();
+    EasyMock.expect(server2.getTier()).andReturn("hot").atLeastOnce();
+
+    DruidServer server3 = EasyMock.createStrictMock(DruidServer.class);
+    EasyMock.expect(server3.getDataSource("datasource1")).andReturn(
+        listDataSources.get(1)
+    ).atLeastOnce();
+    EasyMock.expect(server3.getTier()).andReturn("cold").atLeastOnce();
+
+    EasyMock.expect(inventoryView.getInventory()).andReturn(
+        ImmutableList.of(server, server2, server3)
+    ).atLeastOnce();
+
+    EasyMock.replay(inventoryView, server, server2, server3);
+    DatasourcesResource datasourcesResource = new DatasourcesResource(inventoryView, null, null);
+    Response response = datasourcesResource.getTheDataSource("datasource1", null);
+    Assert.assertEquals(200, response.getStatus());
+    Map<String, Map<String, Object>> result = (Map<String, Map<String, Object>>) response.getEntity();
+    Assert.assertEquals(2, ((Map) (result.get("tiers").get("cold"))).get("segmentCount"));
+    Assert.assertEquals(30L, ((Map) (result.get("tiers").get("cold"))).get("size"));
+    Assert.assertEquals(1, ((Map) (result.get("tiers").get("hot"))).get("segmentCount"));
+    Assert.assertEquals(20L, ((Map) (result.get("tiers").get("hot"))).get("size"));
+    Assert.assertNotNull(result.get("segments"));
+    Assert.assertEquals("2010-01-01T00:00:00.000Z", result.get("segments").get("minTime").toString());
+    Assert.assertEquals("2010-01-23T00:00:00.000Z", result.get("segments").get("maxTime").toString());
+    Assert.assertEquals(2, result.get("segments").get("count"));
+    Assert.assertEquals(30L, result.get("segments").get("size"));
+    EasyMock.verify(inventoryView, server, server2, server3);
   }
 
   @Test

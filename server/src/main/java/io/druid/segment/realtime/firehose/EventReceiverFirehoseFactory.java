@@ -1,18 +1,20 @@
 /*
- * Druid - a distributed column store.
- * Copyright 2012 - 2015 Metamarkets Group Inc.
+ * Licensed to Metamarkets Group Inc. (Metamarkets) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. Metamarkets licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 
 package io.druid.segment.realtime.firehose;
@@ -33,12 +35,12 @@ import com.metamx.emitter.EmittingLogger;
 import io.druid.data.input.Firehose;
 import io.druid.data.input.FirehoseFactory;
 import io.druid.data.input.InputRow;
-import io.druid.data.input.Rows;
 import io.druid.data.input.impl.MapInputRowParser;
-
 import io.druid.guice.annotations.Json;
 import io.druid.guice.annotations.Smile;
-import java.io.InputStream;
+import io.druid.server.metrics.EventReceiverFirehoseMetric;
+import io.druid.server.metrics.EventReceiverFirehoseRegister;
+
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.POST;
@@ -48,6 +50,7 @@ import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +73,7 @@ public class EventReceiverFirehoseFactory implements FirehoseFactory<MapInputRow
   private final Optional<ChatHandlerProvider> chatHandlerProvider;
   private final ObjectMapper jsonMapper;
   private final ObjectMapper smileMapper;
+  private final EventReceiverFirehoseRegister eventReceiverFirehoseRegister;
 
   @JsonCreator
   public EventReceiverFirehoseFactory(
@@ -77,7 +81,8 @@ public class EventReceiverFirehoseFactory implements FirehoseFactory<MapInputRow
       @JsonProperty("bufferSize") Integer bufferSize,
       @JacksonInject ChatHandlerProvider chatHandlerProvider,
       @JacksonInject @Json ObjectMapper jsonMapper,
-      @JacksonInject @Smile ObjectMapper smileMapper
+      @JacksonInject @Smile ObjectMapper smileMapper,
+      @JacksonInject EventReceiverFirehoseRegister eventReceiverFirehoseRegister
   )
   {
     Preconditions.checkNotNull(serviceName, "serviceName");
@@ -87,13 +92,13 @@ public class EventReceiverFirehoseFactory implements FirehoseFactory<MapInputRow
     this.chatHandlerProvider = Optional.fromNullable(chatHandlerProvider);
     this.jsonMapper = jsonMapper;
     this.smileMapper = smileMapper;
+    this.eventReceiverFirehoseRegister = eventReceiverFirehoseRegister;
   }
 
   @Override
   public Firehose connect(MapInputRowParser firehoseParser) throws IOException
   {
     log.info("Connecting firehose: %s", serviceName);
-
     final EventReceiverFirehose firehose = new EventReceiverFirehose(firehoseParser);
 
     if (chatHandlerProvider.isPresent()) {
@@ -105,6 +110,8 @@ public class EventReceiverFirehoseFactory implements FirehoseFactory<MapInputRow
     } else {
       log.info("No chathandler detected");
     }
+
+    eventReceiverFirehoseRegister.register(serviceName, firehose);
 
     return firehose;
   }
@@ -121,7 +128,7 @@ public class EventReceiverFirehoseFactory implements FirehoseFactory<MapInputRow
     return bufferSize;
   }
 
-  public class EventReceiverFirehose implements ChatHandler, Firehose
+  public class EventReceiverFirehose implements ChatHandler, Firehose, EventReceiverFirehoseMetric
   {
     private final BlockingQueue<InputRow> buffer;
     private final MapInputRowParser parser;
@@ -172,17 +179,7 @@ public class EventReceiverFirehoseFactory implements FirehoseFactory<MapInputRow
       }
 
       try {
-        for (final InputRow row : rows) {
-          boolean added = false;
-          while (!closed && !added) {
-            added = buffer.offer(row, 500, TimeUnit.MILLISECONDS);
-          }
-
-          if (!added) {
-            throw new IllegalStateException("Cannot add events to closed firehose!");
-          }
-        }
-
+        addRows(rows);
         return Response.ok(
             objectMapper.writeValueAsString(ImmutableMap.of("eventCount", events.size())),
             contentType
@@ -202,8 +199,11 @@ public class EventReceiverFirehoseFactory implements FirehoseFactory<MapInputRow
     {
       synchronized (readLock) {
         try {
-          while (!closed && nextRow == null) {
+          while (nextRow == null) {
             nextRow = buffer.poll(500, TimeUnit.MILLISECONDS);
+            if (closed) {
+              break;
+            }
           }
         }
         catch (InterruptedException e) {
@@ -244,13 +244,44 @@ public class EventReceiverFirehoseFactory implements FirehoseFactory<MapInputRow
     }
 
     @Override
+    public int getCurrentBufferSize()
+    {
+      // ArrayBlockingQueue's implementation of size() is thread-safe, so we can use that
+      return buffer.size();
+    }
+
+    @Override
+    public int getCapacity()
+    {
+      return bufferSize;
+    }
+
+    @Override
     public void close() throws IOException
     {
-      log.info("Firehose closing.");
-      closed = true;
+      if (!closed) {
+        log.info("Firehose closing.");
+        closed = true;
 
-      if (chatHandlerProvider.isPresent()) {
-        chatHandlerProvider.get().unregister(serviceName);
+        eventReceiverFirehoseRegister.unregister(serviceName);
+        if (chatHandlerProvider.isPresent()) {
+          chatHandlerProvider.get().unregister(serviceName);
+        }
+      }
+    }
+
+    // public for tests
+    public void addRows(Iterable<InputRow> rows) throws InterruptedException
+    {
+      for (final InputRow row : rows) {
+        boolean added = false;
+        while (!closed && !added) {
+          added = buffer.offer(row, 500, TimeUnit.MILLISECONDS);
+        }
+
+        if (!added) {
+          throw new IllegalStateException("Cannot add events to closed firehose!");
+        }
       }
     }
   }

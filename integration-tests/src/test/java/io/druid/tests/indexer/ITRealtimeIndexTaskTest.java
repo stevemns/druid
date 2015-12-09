@@ -1,26 +1,29 @@
 /*
- * Druid - a distributed column store.
- * Copyright 2012 - 2015 Metamarkets Group Inc.
+ * Licensed to Metamarkets Group Inc. (Metamarkets) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. Metamarkets licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 
 package io.druid.tests.indexer;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.base.Throwables;
 import com.google.inject.Inject;
-import com.metamx.common.logger.Logger;
 import com.metamx.common.ISE;
+import com.metamx.common.logger.Logger;
 import com.metamx.http.client.HttpClient;
 import io.druid.curator.discovery.ServerDiscoveryFactory;
 import io.druid.curator.discovery.ServerDiscoverySelector;
@@ -30,6 +33,7 @@ import io.druid.testing.clients.EventReceiverFirehoseTestClient;
 import io.druid.testing.guice.DruidTestModuleFactory;
 import io.druid.testing.utils.RetryUtil;
 import io.druid.testing.utils.ServerDiscoveryUtil;
+import org.apache.commons.io.IOUtils;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 import org.joda.time.format.DateTimeFormat;
@@ -38,20 +42,12 @@ import org.testng.annotations.Guice;
 import org.testng.annotations.Test;
 
 import javax.ws.rs.core.MediaType;
-
-import org.apache.commons.io.IOUtils;
-
 import java.io.BufferedReader;
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-
-import com.fasterxml.jackson.core.type.TypeReference;
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
-
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
